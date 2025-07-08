@@ -6,6 +6,9 @@ from src.prompts.main import SYSTEM_PROMPT
 
 app = FastAPI(title="Logical Data Modeling Assistant API", description="Generate and iteratively refine logical data models via chat.")
 
+# In-memory chat history (single session, not for production)
+chat_history: List[Dict[str, Any]] = []
+
 class Message(BaseModel):
     """A single message in the chat between user and assistant."""
     role: Literal["user", "assistant"] = Field(..., description="The role of the message sender: 'user' or 'assistant'.")
@@ -26,6 +29,7 @@ def model_chat(request: QueryRequest) -> QueryResponse:
     The assistant will always return the full logical data model as a JSON object.
     The response contains only the user query and the assistant's response (no system prompt).
     """
+    global chat_history
     # Build the chat with system prompt and user query
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -34,4 +38,22 @@ def model_chat(request: QueryRequest) -> QueryResponse:
     generate_logical_data(messages, request.query)
     # Only return user and assistant messages (omit system prompt)
     filtered_messages = [m for m in messages if m["role"] != "system"]
-    return QueryResponse(messages=filtered_messages) 
+    # Append to in-memory chat history
+    chat_history.extend(filtered_messages)
+    return QueryResponse(messages=filtered_messages)
+
+@app.post("/model-chat/reset", summary="Reset the chat history", tags=["Model Chat"])
+def reset_chat() -> Dict[str, str]:
+    """
+    Reset (clear) the in-memory chat history.
+    """
+    global chat_history
+    chat_history.clear()
+    return {"message": "Chat history has been reset."}
+
+@app.get("/model-chat/history", response_model=QueryResponse, summary="Get the current chat history", tags=["Model Chat"])
+def get_chat_history() -> QueryResponse:
+    """
+    Retrieve the current in-memory chat history (user and assistant messages only).
+    """
+    return QueryResponse(messages=chat_history) 
