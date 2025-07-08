@@ -1,23 +1,35 @@
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional, Any
+
+class Attribute(BaseModel):
+    id: str
+    name: str
+    type: str
+    isPrimaryKey: bool = False
+    isForeignKey: bool = False
+    classification: Optional[str] = None
+
+class Position(BaseModel):
+    x: int
+    y: int
 
 class Entity(BaseModel):
-    name: str = Field(..., description="The name of the entity")
-    attributes: List[str] = Field(..., description="List of attributes associated with the entity")
-
-class EntityList(BaseModel):
-    entities: List[Entity] = Field(..., description="List of entities identified in the response")
+    id: str
+    name: str
+    attributes: List[Attribute]
+    position: Optional[Position] = None
 
 class Relationship(BaseModel):
-    source: str = Field(..., description="The source entity of the relationship")
-    target: str = Field(..., description="The target entity of the relationship")
-    type: str = Field(..., description="The type of relationship (e.g., 'one-to-many', 'many-to-many')")
+    id: str
+    fromEntity: str
+    toEntity: str
+    type: str
+    name: str
 
-class RelationshipList(BaseModel):
-    relationships: List[Relationship] = Field(..., description="List of relationships between entities")
-
-class Response(BaseModel):
-    entity: EntityList
-    relationships: RelationshipList
+class LogicalDataModel(BaseModel):
+    id: str
+    name: str
+    entities: List[Entity]
+    relationships: List[Relationship]
 
     

@@ -1,7 +1,7 @@
 """ Test Suite """
 #internal 
-from agent.main import generate_logical_data
-from prompts.main import SYSTEM_PROMPT
+from src.agent.main import generate_logical_data
+from src.prompts.main import SYSTEM_PROMPT
 
 def main():
     messages = [
