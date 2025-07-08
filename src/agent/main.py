@@ -10,7 +10,10 @@ load_dotenv()
 
 
 #external 
+from dotenv import load_dotenv
 from groq import Groq
+
+load_dotenv()
 
 client = instructor.from_groq(Groq())
 
