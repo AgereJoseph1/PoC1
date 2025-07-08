@@ -6,7 +6,10 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "anthropic>=0.57.1",
+    "eval-type-backport>=0.2.2",
+    "fastapi<0.113",
     "groq>=0.4.2",
     "instructor[groq]==1.8.0",
     "python-dotenv>=1.1.1",
+    "uvicorn>=0.35.0",
 ]
