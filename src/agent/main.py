@@ -87,14 +87,14 @@ def order_chat_history(history):
 GREETINGS = ["hello", "hi", "hey", "good morning", "good afternoon", "good evening"]
 
 def is_greeting(text):
-    return any(greet in text.lower() for greet in GREETINGS)
+    return text.strip().lower() in GREETINGS
 
 CASUAL_QUERIES = [
     "what can you do", "who are you", "help", "what is this", "what do you do", "how can you help", "your capabilities"
 ]
 
 def is_casual_query(text):
-    return any(phrase in text.lower() for phrase in CASUAL_QUERIES)
+    return text.strip().lower() in CASUAL_QUERIES
 
 app = FastAPI(title="Logical Data Modeling Assistant API", description="Generate and iteratively refine logical data models via chat.")
 
