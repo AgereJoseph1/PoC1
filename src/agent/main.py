@@ -9,6 +9,7 @@ from src.schema.main import LogicalDataModel
 from openai import Client
 from dotenv import load_dotenv
 import json
+from datetime import datetime, timezone
 
 load_dotenv()
 
@@ -27,6 +28,7 @@ class Message(BaseModel):
     """A single message in the chat between user and assistant."""
     role: Literal["user", "assistant"] = Field(..., description="The role of the message sender: 'user' or 'assistant'.")
     content: Any = Field(..., description="The message content. For 'user', this is a string. For 'assistant', this is the logical data model as a JSON object.")
+    timestamp: str = Field(..., description="The ISO 8601 UTC timestamp when the message was created.")
 
 class QueryRequest(BaseModel):
     """Request body for the /model-chat endpoint. Only the user's query is required."""
@@ -96,6 +98,9 @@ CASUAL_QUERIES = [
 def is_casual_query(text):
     return text.strip().lower() in CASUAL_QUERIES
 
+def get_utc_timestamp():
+    return datetime.now(timezone.utc).isoformat()
+
 app = FastAPI(title="Logical Data Modeling Assistant API", description="Generate and iteratively refine logical data models via chat.")
 
 # Add CORS middleware to allow all origins (for development; restrict in production)
@@ -111,38 +116,40 @@ app.add_middleware(
 def model_chat(request: QueryRequest, user_id: Optional[str] = Header(DEFAULT_USER_ID, include_in_schema=False)) -> QueryResponse:
     if is_greeting(request.query):
         return QueryResponse(messages=[
-            Message(role="user", content=request.query),
-            Message(role="assistant", content="Hello! How can I help you with your data modeling today?")
+            Message(role="user", content=request.query, timestamp=get_utc_timestamp()),
+            Message(role="assistant", content="Hello! How can I help you with your data modeling today?", timestamp=get_utc_timestamp())
         ])
     if is_casual_query(request.query):
         return QueryResponse(messages=[
-            Message(role="user", content=request.query),
+            Message(role="user", content=request.query, timestamp=get_utc_timestamp()),
             Message(
                 role="assistant",
-                content="I'm a logical data modeling assistant. I can help you design, refine, and explain logical data models for your business or software needs. Just describe your requirements or ask for a data model, and I'll generate one for you!"
+                content="I'm a logical data modeling assistant. I can help you design, refine, and explain logical data models for your business or software needs. Just describe your requirements or ask for a data model, and I'll generate one for you!",
+                timestamp=get_utc_timestamp()
             )
         ])
     # Use default user_id if not provided
     # Get or create chat history for this user (user+assistant messages only)
     history = chat_histories.setdefault(user_id, [])
     # Add the new user message to the history
-    history.append({"role": "user", "content": request.query})
+    history.append({"role": "user", "content": request.query, "timestamp": get_utc_timestamp()})
     # Prepare messages for the LLM (system prompt + full history)
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     for m in history:
         if m["role"] == "assistant" and isinstance(m["content"], dict):
             # Convert dict to JSON string for LLM
-            messages.append({"role": m["role"], "content": json.dumps(m["content"])})
+            messages.append({"role": m["role"], "content": json.dumps(m["content"])} )
         else:
-            messages.append(m)
+            messages.append({"role": m["role"], "content": m["content"]})
     # Generate assistant response (returns dict)
     response_dict = generate_logical_data(messages, request.query)
     # Add the assistant's response to the history
-    history.append({"role": "assistant", "content": response_dict})
+    history.append({"role": "assistant", "content": response_dict, "timestamp": get_utc_timestamp()})
     # Save updated history
     chat_histories[user_id] = history
     # Return messages in standard order (most recent user+assistant pair first)
-    return QueryResponse(messages=order_chat_history(history))
+    # Convert history to Message objects with timestamps
+    return QueryResponse(messages=[Message(**msg) for msg in order_chat_history(history)])
 
 @app.post("/model-chat/reset", summary="Reset the chat history", tags=["Model Chat"])
 def reset_chat(user_id: Optional[str] = Header(DEFAULT_USER_ID, include_in_schema=False)) -> Dict[str, str]:
@@ -151,4 +158,5 @@ def reset_chat(user_id: Optional[str] = Header(DEFAULT_USER_ID, include_in_schem
 
 @app.get("/model-chat/history", response_model=QueryResponse, summary="Get the current chat history", tags=["Model Chat"])
 def get_chat_history(user_id: Optional[str] = Header(DEFAULT_USER_ID, include_in_schema=False)) -> QueryResponse:
-    return QueryResponse(messages=order_chat_history(chat_histories.get(user_id, [])))
+    # Convert history to Message objects with timestamps
+    return QueryResponse(messages=[Message(**msg) for msg in order_chat_history(chat_histories.get(user_id, []))])
