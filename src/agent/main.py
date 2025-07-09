@@ -84,6 +84,18 @@ def order_chat_history(history):
     ordered = [msg for pair in pairs for msg in pair]
     return ordered
 
+GREETINGS = ["hello", "hi", "hey", "good morning", "good afternoon", "good evening"]
+
+def is_greeting(text):
+    return any(greet in text.lower() for greet in GREETINGS)
+
+CASUAL_QUERIES = [
+    "what can you do", "who are you", "help", "what is this", "what do you do", "how can you help", "your capabilities"
+]
+
+def is_casual_query(text):
+    return any(phrase in text.lower() for phrase in CASUAL_QUERIES)
+
 app = FastAPI(title="Logical Data Modeling Assistant API", description="Generate and iteratively refine logical data models via chat.")
 
 # Add CORS middleware to allow all origins (for development; restrict in production)
@@ -97,6 +109,19 @@ app.add_middleware(
 
 @app.post("/model-chat", response_model=QueryResponse, summary="Chat with the logical data modeling assistant", tags=["Model Chat"])
 def model_chat(request: QueryRequest, user_id: Optional[str] = Header(DEFAULT_USER_ID, include_in_schema=False)) -> QueryResponse:
+    if is_greeting(request.query):
+        return QueryResponse(messages=[
+            Message(role="user", content=request.query),
+            Message(role="assistant", content="Hello! How can I help you with your data modeling today?")
+        ])
+    if is_casual_query(request.query):
+        return QueryResponse(messages=[
+            Message(role="user", content=request.query),
+            Message(
+                role="assistant",
+                content="I'm a logical data modeling assistant. I can help you design, refine, and explain logical data models for your business or software needs. Just describe your requirements or ask for a data model, and I'll generate one for you!"
+            )
+        ])
     # Use default user_id if not provided
     # Get or create chat history for this user (user+assistant messages only)
     history = chat_histories.setdefault(user_id, [])
