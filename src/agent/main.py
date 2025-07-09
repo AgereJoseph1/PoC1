@@ -1,6 +1,7 @@
 """ A script to generate logical data using Groq's LLM capabilities. """
 
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Literal, Optional
 from src.prompts.main import SYSTEM_PROMPT
@@ -11,10 +12,11 @@ import json
 
 load_dotenv()
 
-client = Client(
-    base_url="https://language-model-service.mangobeach-c18b898d.switzerlandnorth.azurecontainerapps.io/api/v2/openai/text/",
-    api_key="LMS_API_KEY"  # Uses default value as per your sample
-)
+# Remove the global client initialization - it's blocking startup
+# client = Client(
+#     base_url="https://language-model-service.mangobeach-c18b898d.switzerlandnorth.azurecontainerapps.io/api/v2/openai/text/",
+#     api_key="LMS_API_KEY"  # Uses default value as per your sample
+# )
 
 # In-memory chat histories per user (no login, user_id required in header)
 chat_histories: Dict[str, List[Dict[str, Any]]] = {}
@@ -35,6 +37,12 @@ class QueryResponse(BaseModel):
     messages: List[Message] = Field(..., description="The user query and the assistant's response (logical data model).")
 
 def generate_logical_data(messages, query):
+    # Create client only when needed (lazy initialization)
+    client = Client(
+        base_url="https://language-model-service.mangobeach-c18b898d.switzerlandnorth.azurecontainerapps.io/api/v2/openai/text/",
+        api_key="LMS_API_KEY"
+    )
+    
     # Call your in-house GPT API
     # Note: messages should contain the full conversation history
     # with previous assistant responses as JSON objects
@@ -77,6 +85,15 @@ def order_chat_history(history):
     return ordered
 
 app = FastAPI(title="Logical Data Modeling Assistant API", description="Generate and iteratively refine logical data models via chat.")
+
+# Add CORS middleware to allow all origins (for development; restrict in production)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.post("/model-chat", response_model=QueryResponse, summary="Chat with the logical data modeling assistant", tags=["Model Chat"])
 def model_chat(request: QueryRequest, user_id: Optional[str] = Header(DEFAULT_USER_ID, include_in_schema=False)) -> QueryResponse:
