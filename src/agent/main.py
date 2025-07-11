@@ -10,6 +10,7 @@ from openai import Client
 from dotenv import load_dotenv
 import json
 from datetime import datetime, timezone
+import re
 
 load_dotenv()
 
@@ -48,25 +49,14 @@ def generate_logical_data(messages, query):
     # Call your in-house GPT API
     # Note: messages should contain the full conversation history
     # with previous assistant responses as JSON objects
-    chat_completion = client.beta.chat.completions.parse(
+    chat_completion = client.beta.chat.completions.create(
         model="gpt-4o",
         messages=messages,
-        max_tokens=1000,
-        response_format=LogicalDataModel
+        max_tokens=1000
     )
-    response = chat_completion.choices[0].message.parsed
+    response = chat_completion.choices[0].message.content
 
-    # Convert the LogicalDataModel to a dict for storage
-    response_dict = response.model_dump()
-
-    messages.append(
-        {
-            "role": "assistant",
-            "content": response_dict,
-        }
-    )
-
-    return response_dict
+    return response
 
 def order_chat_history(history):
     # Group into pairs: [user, assistant]
@@ -85,6 +75,22 @@ def order_chat_history(history):
     # Flatten back to a single list
     ordered = [msg for pair in pairs for msg in pair]
     return ordered
+
+def extract_json_from_string(s):
+    # Try to extract JSON from a code block
+    match = re.search(r"```(?:json)?\n(.*?)```", s, re.DOTALL)
+    if match:
+        json_str = match.group(1)
+        try:
+            return json.loads(json_str)
+        except Exception:
+            pass
+    # Try to parse the whole string as JSON
+    try:
+        return json.loads(s)
+    except Exception:
+        pass
+    return s  # Return as-is if not JSON
 
 GREETINGS = ["hello", "hi", "hey", "good morning", "good afternoon", "good evening"]
 
@@ -141,10 +147,12 @@ def model_chat(request: QueryRequest, user_id: Optional[str] = Header(DEFAULT_US
             messages.append({"role": m["role"], "content": json.dumps(m["content"])} )
         else:
             messages.append({"role": m["role"], "content": m["content"]})
-    # Generate assistant response (returns dict)
-    response_dict = generate_logical_data(messages, request.query)
+    # Generate assistant response (returns string or dict)
+    response = generate_logical_data(messages, request.query)
+    # Post-process: ensure response is a JSON object if possible
+    processed_response = extract_json_from_string(response)
     # Add the assistant's response to the history
-    history.append({"role": "assistant", "content": response_dict, "timestamp": get_utc_timestamp()})
+    history.append({"role": "assistant", "content": processed_response, "timestamp": get_utc_timestamp()})
     # Save updated history
     chat_histories[user_id] = history
     # Return messages in standard order (most recent user+assistant pair first)
