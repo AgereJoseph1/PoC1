@@ -29,6 +29,7 @@ class Relationship(BaseModel):
 class LogicalDataModel(BaseModel):
     id: str
     name: str
+    message: str
     entities: List[Entity]
     relationships: List[Relationship]
 
