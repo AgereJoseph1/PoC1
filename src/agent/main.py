@@ -4,7 +4,7 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Literal, Optional
-from src.prompts.main import SYSTEM_PROMPT
+from src.prompts.main import SYSTEM_PROMPT, INTENT_PROMPT
 from src.schema.main import LogicalDataModel
 from openai import Client
 from dotenv import load_dotenv
@@ -38,7 +38,44 @@ class QueryResponse(BaseModel):
     """Response body for the /model-chat endpoint, containing the user query and the assistant's response."""
     messages: List[Message] = Field(..., description="The user query and the assistant's response (logical data model).")
 
+class IntentResponse(BaseModel):
+    response: str 
+
+
+def classify_intent(messages, query):
+    messages.append({
+        "role": "user",
+        "content": query
+    })
+    client = Client(
+        base_url="https://language-model-service.mangobeach-c18b898d.switzerlandnorth.azurecontainerapps.io/api/v2/openai/text/",
+        api_key="LMS_API_KEY"
+    )
+    
+    # Call your in-house GPT API
+    # Note: messages should contain the full conversation history
+    # with previous assistant responses as JSON objects
+    chat_completion = client.beta.chat.completions.parse(
+        model="gpt-4o",
+        messages=messages,
+        max_tokens=1000,
+        response_format=IntentResponse
+    )
+    response = chat_completion.choices[0].message.parsed
+
+    # Convert the LogicalDataModel to a dict for storage
+    response_dict = response.model_dump()
+
+    print("response dict from intent classification: ", response_dict)
+
+    return response_dict['response']
+
+
 def generate_logical_data(messages, query):
+    messages.append({
+        "role": "user",
+        "content": query
+    })
     # Create client only when needed (lazy initialization)
     client = Client(
         base_url="https://language-model-service.mangobeach-c18b898d.switzerlandnorth.azurecontainerapps.io/api/v2/openai/text/",
@@ -67,6 +104,42 @@ def generate_logical_data(messages, query):
     )
 
     return response_dict
+
+def generate_conversational_response(messages, query):
+    messages.append({
+        "role": "user",
+        "content": query
+    })
+    # Create client only when needed (lazy initialization)
+    client = Client(
+        base_url="https://language-model-service.mangobeach-c18b898d.switzerlandnorth.azurecontainerapps.io/api/v2/openai/text/",
+        api_key="LMS_API_KEY"
+    )
+    
+    # Call your in-house GPT API
+    # Note: messages should contain the full conversation history
+    # with previous assistant responses as JSON objects
+    chat_completion = client.beta.chat.completions.parse(
+        model="gpt-4o",
+        messages=messages,
+        max_tokens=1000,
+        response_format=IntentResponse
+    )
+    response = chat_completion.choices[0].message.parsed
+
+    # Convert the LogicalDataModel to a dict for storage
+    response_dict = response.model_dump()
+
+    print("conversational api call: ", response_dict["response"])
+
+    messages.append(
+        {
+            "role": "assistant",
+            "content": response_dict["response"],
+        }
+    )
+
+    return response_dict["response"]
 
 def order_chat_history(history):
     # Group into pairs: [user, assistant]
@@ -114,20 +187,6 @@ app.add_middleware(
 
 @app.post("/model-chat", response_model=QueryResponse, summary="Chat with the logical data modeling assistant", tags=["Model Chat"])
 def model_chat(request: QueryRequest, user_id: Optional[str] = Header(DEFAULT_USER_ID, include_in_schema=False)) -> QueryResponse:
-    if is_greeting(request.query):
-        return QueryResponse(messages=[
-            Message(role="user", content=request.query, timestamp=get_utc_timestamp()),
-            Message(role="assistant", content="Hello! How can I help you with your data modeling today?", timestamp=get_utc_timestamp())
-        ])
-    if is_casual_query(request.query):
-        return QueryResponse(messages=[
-            Message(role="user", content=request.query, timestamp=get_utc_timestamp()),
-            Message(
-                role="assistant",
-                content="I'm a logical data modeling assistant. I can help you design, refine, and explain logical data models for your business or software needs. Just describe your requirements or ask for a data model, and I'll generate one for you!",
-                timestamp=get_utc_timestamp()
-            )
-        ])
     # Use default user_id if not provided
     # Get or create chat history for this user (user+assistant messages only)
     history = chat_histories.setdefault(user_id, [])
@@ -135,16 +194,34 @@ def model_chat(request: QueryRequest, user_id: Optional[str] = Header(DEFAULT_US
     history.append({"role": "user", "content": request.query, "timestamp": get_utc_timestamp()})
     # Prepare messages for the LLM (system prompt + full history)
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    intent_history = [{"role": "system", "content": INTENT_PROMPT}]
     for m in history:
         if m["role"] == "assistant" and isinstance(m["content"], dict):
             # Convert dict to JSON string for LLM
             messages.append({"role": m["role"], "content": json.dumps(m["content"])} )
+            intent_history.append({"role": m["role"], "content": json.dumps(m["content"])} )
         else:
             messages.append({"role": m["role"], "content": m["content"]})
+            intent_history.append({"role": m["role"], "content": m["content"]})
+
+    intent = classify_intent(intent_history, request.query)
+
+    print('intent derived: ', intent)
+
+    if intent == 'CONVO':
+        response = generate_conversational_response(messages, request.query)
+        print("convo bot response: ", response)
+        history.append({"role": "assistant", "content": response, "timestamp": get_utc_timestamp()})
+    elif intent == 'MODEL':
+        response_dict = generate_logical_data(messages, request.query)
+        print("model bot response: ", response_dict)
+        history.append({"role": "assistant", "content": response_dict, "timestamp": get_utc_timestamp()})
+
+    print(history)
     # Generate assistant response (returns dict)
-    response_dict = generate_logical_data(messages, request.query)
+    #response_dict = generate_logical_data(messages, request.query)
     # Add the assistant's response to the history
-    history.append({"role": "assistant", "content": response_dict, "timestamp": get_utc_timestamp()})
+    #history.append({"role": "assistant", "content": response_dict, "timestamp": get_utc_timestamp()})
     # Save updated history
     chat_histories[user_id] = history
     # Return messages in standard order (most recent user+assistant pair first)
